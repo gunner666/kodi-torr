@@ -1,0 +1,167 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Explorador del repositorio</title>
+
+<style>
+body {
+    font-family: Arial, sans-serif;
+    background: #f5f5f5;
+    padding: 25px;
+    color: #333;
+}
+
+h2 {
+    font-size: 20px;
+}
+
+#tree {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    max-width: 800px;
+}
+
+ul {
+    list-style: none;
+    padding-left: 22px;
+}
+
+li {
+    margin: 7px 0;
+}
+
+.folder, .file {
+    cursor: pointer;
+    padding: 3px;
+    border-radius: 4px;
+}
+
+.folder:hover, .file:hover {
+    background: #eee;
+}
+
+.folder::before {
+    content: "📁 ";
+}
+
+.folder.open::before {
+    content: "📂 ";
+}
+
+.file::before {
+    content: "📄 ";
+}
+
+a {
+    text-decoration: none;
+    color: #333;
+}
+
+.hidden {
+    display: none;
+}
+
+#error {
+    color: #c00;
+}
+</style>
+</head>
+
+<body>
+
+<h2>📁 Explorador de archivos</h2>
+
+<div id="tree">Cargando archivos...</div>
+<div id="error"></div>
+
+<script>
+
+// CONFIGURACIÓN DEL REPOSITORIO
+const USUARIO = "TU_USUARIO";
+const REPOSITORIO = "TU_REPOSITORIO";
+const RAMA = "main";
+
+// OBTENER CONTENIDO DEL REPOSITORIO
+async function obtenerArchivos(ruta = "") {
+
+    const url = `https://api.github.com/repos/${USUARIO}/${REPOSITORIO}/contents/${ruta}?ref=${RAMA}`;
+
+    const respuesta = await fetch(url);
+
+    if (!respuesta.ok) {
+        throw new Error("No se pudo acceder al repositorio.");
+    }
+
+    const archivos = await respuesta.json();
+
+    return archivos;
+}
+
+// CREAR ÁRBOL
+async function crearArbol(ruta, contenedor) {
+
+    const lista = document.createElement("ul");
+
+    try {
+
+        const archivos = await obtenerArchivos(ruta);
+
+        for (const archivo of archivos) {
+
+            const li = document.createElement("li");
+
+            if (archivo.type === "dir") {
+
+                const carpeta = document.createElement("span");
+                carpeta.className = "folder";
+                carpeta.textContent = archivo.name;
+
+                const subarbol = document.createElement("div");
+                subarbol.className = "hidden";
+
+                carpeta.onclick = async () => {
+
+                    if (!subarbol.dataset.loaded) {
+                        await crearArbol(archivo.path, subarbol);
+                        subarbol.dataset.loaded = "true";
+                    }
+
+                    subarbol.classList.toggle("hidden");
+                    carpeta.classList.toggle("open");
+                };
+
+                li.appendChild(carpeta);
+                li.appendChild(subarbol);
+
+            } else {
+
+                const enlace = document.createElement("a");
+                enlace.className = "file";
+                enlace.textContent = archivo.name;
+                enlace.href = archivo.html_url;
+                enlace.target = "_blank";
+
+                li.appendChild(enlace);
+            }
+
+            lista.appendChild(li);
+        }
+
+        contenedor.appendChild(lista);
+
+    } catch (error) {
+        document.getElementById("error").textContent = error.message;
+    }
+}
+
+// INICIAR
+crearArbol("", document.getElementById("tree"));
+
+</script>
+
+</body>
+</html>
