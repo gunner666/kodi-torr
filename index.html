@@ -2,23 +2,154 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Mis Torrents para Kodi</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Repositorio de Archivos</title>
     <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; background: #f4f4f9; color: #333; }
-        h1 { color: #0366d6; }
-        ul { list-style: none; padding: 0; }
-        li { background: white; margin: 10px 0; padding: 15px; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        a { text-decoration: none; color: #0366d6; font-weight: bold; word-break: break-all; }
-        a:hover { text-decoration: underline; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 40px;
+            background-color: #f6f8fa;
+            color: #24292f;
+        }
+        h1 {
+            border-bottom: 1px solid #d0d7de;
+            padding-bottom: 10px;
+        }
+        .tree {
+            list-style-type: none;
+            padding-left: 20px;
+        }
+        .tree li {
+            margin: 8px 0;
+            position: relative;
+        }
+        .folder {
+            font-weight: bold;
+            color: #0969da;
+            cursor: pointer;
+            user-select: none;
+        }
+        .folder::before {
+            content: "📁 ";
+        }
+        .folder.open::before {
+            content: "📂 ";
+        }
+        .file::before {
+            content: "📄 ";
+        }
+        .file a {
+            color: #24292f;
+            text-decoration: none;
+        }
+        .file a:hover {
+            text-decoration: underline;
+            color: #0969da;
+        }
+        .nested {
+            display: none;
+        }
+        .active {
+            display: block;
+        }
+        .loading {
+            font-style: italic;
+            color: #57606a;
+        }
     </style>
 </head>
 <body>
-    <h1>🎬 Mis Torrents para Kodi</h1>
-    <p>Lista de archivos torrent accesibles:</p>
-    <ul>
-        <!-- CAMBIA ESTO POR EL NOMBRE DE TUS ARCHIVOS -->
-        <li>📄 <a href="thunderbolts--2025---4KUHDrip_25_4056 [WolfTorrent].torrent">Thunderbolts 4k</a></li>
-        <li>📄 <a href="the-killer--2024---BluRay-1080p_28_1029 [WolfTorrent].torrent">Serie de Ejemplo 2 - Episodio 1</a></li>
-    </ul>
+
+    <h1>Mi Repositorio de Archivos</h1>
+    <div id="repo-tree" class="loading">Cargando estructura de archivos...</div>
+
+    <script>
+        // CONFIGURACIÓN: Cambia esto por tus datos de GitHub
+        const USER = 'gunner666';
+        const REPO = 'kodi-torr';
+        const BRANCH = 'main'; // O 'master' si usas la rama antigua
+
+        async function fetchRepoTree() {
+            // Usamos el parámetro recursive=1 para traer todo el árbol de golpe
+            const url = `https://github.com{USER}/${REPO}/git/trees/${BRANCH}?recursive=1`;
+            
+            try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('Error al conectar con la API de GitHub');
+                const data = await response.json();
+                
+                renderTree(data.tree);
+            } catch (error) {
+                document.getElementById('repo-tree').innerText = 'Error al cargar los archivos. Revisa la configuración.';
+                console.error(error);
+            }
+        }
+
+        function renderTree(files) {
+            const container = document.getElementById('repo-tree');
+            container.innerHTML = ''; // Limpiar mensaje de carga
+            container.classList.remove('loading');
+
+            const rootUl = document.createElement('ul');
+            rootUl.className = 'tree';
+            container.appendChild(rootUl);
+
+            // Objeto para rastrear dónde añadir los elementos hijos
+            const paths = { '': rootUl };
+
+            // Ordenar: primero carpetas por orden alfabético, luego archivos
+            files.sort((a, b) => {
+                if (a.type !== b.type) return a.type === 'tree' ? -1 : 1;
+                return a.path.localeCompare(b.path);
+            });
+
+            files.forEach(file => {
+                // Saltar archivos de configuración de git o de la propia web si no quieres que se vean
+                if (file.path.startsWith('.') || file.path === 'index.html' || file.path === 'README.md') return;
+
+                const parts = file.path.split('/');
+                const name = parts[parts.length - 1];
+                const parentPath = parts.slice(0, -1).join('/');
+                
+                const parentUl = paths[parentPath];
+                if (!parentUl) return; // Salvaguarda si el padre no existe
+
+                const li = document.createElement('li');
+
+                if (file.type === 'tree') {
+                    // Es una carpeta
+                    li.className = 'folder';
+                    li.innerText = name;
+                    
+                    const childUl = document.createElement('ul');
+                    childUl.className = 'tree nested';
+                    li.appendChild(childUl);
+                    
+                    // Guardamos la referencia de esta subcarpeta para sus futuros hijos
+                    paths[file.path] = childUl;
+
+                    // Evento para abrir y cerrar la carpeta al hacer clic
+                    li.addEventListener('click', function(e) {
+                        if (e.target !== this) return; // Evitar que el clic en hijos cierre el padre
+                        this.classList.toggle('open');
+                        childUl.classList.toggle('active');
+                    });
+                } else {
+                    // Es un archivo
+                    li.className = 'file';
+                    const a = document.createElement('a');
+                    // Enlace de descarga directa desde las páginas de GitHub
+                    a.href = `https://githubusercontent.com{USER}/${REPO}/${BRANCH}/${file.path}`;
+                    a.target = '_blank';
+                    a.innerText = name;
+                    li.appendChild(a);
+                }
+
+                parentUl.appendChild(li);
+            });
+        }
+
+        fetchRepoTree();
+    </script>
 </body>
 </html>
