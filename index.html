@@ -1,161 +1,139 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Explorador de Archivos</title>
-    <!-- Estilos limpios y modernos usando Tailwind CSS y FontAwesome para iconos -->
-    <script src="https://jsdelivr.net"></script>
-    <link rel="stylesheet" href="https://cloudflare.com">
-    <style>
-        .nested { display: none; margin-left: 1.5rem; border-left: 2px dashed #e5e7eb; padding-left: 0.5rem; }
-        .active { display: block; }
-        .caret::before { content: "\f0da"; font-family: "Font Awesome 6 Free"; font-weight: 900; margin-right: 0.5rem; display: inline-block; transition: transform 0.2s; }
-        .caret-down::before { transform: rotate(90deg); }
-    </style>
-</head>
-<body class="bg-gray-50 text-gray-800 font-sans p-6">
+async function fetchRepoTree() {
+    try {
+        // === DETECCIÓN AUTOMÁTICA DE DATOS ===
+        // Esto lee automáticamente tu usuario y repositorio desde la URL de GitHub Pages
+        const pathParts = window.location.pathname.split('/').filter(p => p !== '');
+        const GITHUB_USER = window.location.hostname.split('.')[0];
+        const GITHUB_REPO = pathParts[0] || '';
+        const BRANCH = 'main'; // Cambia por 'master' si tu rama se llama así
 
-    <div class="max-w-4xl mx-auto bg-white p-6 rounded-xl shadow-md">
-        <h1 class="text-2xl font-bold mb-2 flex items-center gap-2 text-indigo-600">
-            <i class="fa-brands fa-github"></i> Repositorio de Archivos
-        </h1>
-        <p class="text-sm text-gray-500 mb-6">Explora la estructura en árbol y descarga los archivos que necesites.</p>
+        // Si estás probando localmente en tu PC, usará estos datos por defecto
+        const finalUser = GITHUB_USER === 'localhost' || GITHUB_USER === '127' ? 'ESCRIBE_AQUI_TU_USUARIO_REAL' : GITHUB_USER;
+        const finalRepo = GITHUB_USER === 'localhost' || GITHUB_USER === '127' ? 'ESCRIBE_AQUI_TU_REPO_REAL' : GITHUB_REPO;
+
+        const API_URL = `https://github.com{finalUser}/${finalRepo}/git/trees/${BRANCH}?recursive=1`;
+
+        // Petición a la API
+        const response = await fetch(API_URL).catch(() => {
+            throw new Error("El navegador bloqueó la conexión física. Intenta desactivar AdBlockers/Extensiones de privacidad o usa el Modo Incógnito.");
+        });
+
+        if (response.status === 404) {
+            throw new Error(`GitHub devolvió un error 404. Revisa si la rama se llama '${BRANCH}' o si el repositorio es realmente público.`);
+        }
+        if (!response.ok) {
+            throw new Error(`Error en el servidor de GitHub (Código: ${response.status})`);
+        }
         
-        <!-- Contenedor del árbol -->
-        <div id="file-tree" class="border border-gray-200 rounded-lg p-4 bg-gray-50/50 min-h-[200px]">
-            <div id="loading" class="text-gray-500 flex items-center gap-2 p-2">
-                <i class="fa-solid fa-spinner animate-spin"></i> Cargando estructura...
-            </div>
-        </div>
-    </div>
+        const data = await response.json();
+        const loadingEl = document.getElementById('loading');
+        if(loadingEl) loadingEl.remove();
+        
+        const treeStructure = buildTreeStructure(data.tree);
+        renderTree(treeStructure, document.getElementById('file-tree'), finalUser, finalRepo, BRANCH);
+        setupEventListeners();
+        
+    } catch (error) {
+        document.getElementById('file-tree').innerHTML = `
+            <div class="text-red-500 p-4 bg-red-50 rounded-lg border border-red-200 flex flex-col gap-2">
+                <div class="font-bold flex items-center gap-2">
+                    <i class="fa-solid fa-triangle-exclamation"></i> Error detectado:
+                </div>
+                <div class="text-sm text-gray-700">${error.message}</div>
+            </div>`;
+    }
+}
 
-    <script>
-        // === CONFIGURACIÓN: CAMBIA ESTOS DATOS ===
-        const GITHUB_USER = 'gunner666';
-        const GITHUB_REPO = 'koditorr';
-        const BRANCH = 'main/torrents'; // Cambia por 'master' si tu repositorio usa la rama antigua
-
-        const API_URL = `https://github.com{GITHUB_USER}/${GITHUB_REPO}/git/trees/${BRANCH}?recursive=1`;
-
-        async function fetchRepoTree() {
-            try {
-                const response = await fetch(API_URL);
-                if (!response.ok) throw new Error('No se pudo obtener la información del repositorio.');
-                
-                const data = await response.json();
-                document.getElementById('loading').remove();
-                
-                const treeStructure = buildTreeStructure(data.tree);
-                renderTree(treeStructure, document.getElementById('file-tree'));
-                setupEventListeners();
-                
-            } catch (error) {
-                document.getElementById('file-tree').innerHTML = `
-                    <div class="text-red-500 p-2 flex items-center gap-2">
-                        <i class="fa-solid fa-triangle-exclamation"></i> Error: ${error.message}
-                    </div>`;
+// Convierte la lista plana de GitHub en un objeto anidado (árbol)
+function buildTreeStructure(files) {
+    const root = {};
+    files.forEach(file => {
+        const parts = file.path.split('/');
+        let current = root;
+        
+        parts.forEach((part, index) => {
+            if (!current[part]) {
+                current[part] = { 
+                    _meta: index === parts.length - 1 ? { type: file.type, url: file.url, path: file.path } : { type: 'tree' } 
+                };
             }
+            current = current[part];
+        });
+    });
+    return root;
+}
+
+// Dibuja el HTML del árbol de forma recursiva
+function renderTree(node, container, user, repo, branch) {
+    const ul = document.createElement('ul');
+    ul.className = "space-y-1";
+
+    const keys = Object.keys(node).filter(k => k !== '_meta').sort((a, b) => {
+        const aType = node[a]._meta.type;
+        const bType = node[b]._meta.type;
+        if (aType === 'tree' && bType !== 'tree') return -1;
+        if (aType !== 'tree' && bType === 'tree') return 1;
+        return a.localeCompare(b);
+    });
+
+    keys.forEach(key => {
+        const item = node[key];
+        const li = document.createElement('li');
+        li.className = "py-1";
+
+        if (item._meta.type === 'tree') {
+            li.innerHTML = `
+                <span class="caret cursor-pointer font-medium text-gray-700 hover:text-indigo-600 select-none flex items-center inline-flex">
+                    <i class="fa-solid fa-folder text-yellow-500 mr-2"></i> ${key}
+                </span>
+            `;
+            const nestedUlContainer = document.createElement('div');
+            nestedUlContainer.className = "nested";
+            renderTree(item, nestedUlContainer, user, repo, branch);
+            li.appendChild(nestedUlContainer);
+        } else {
+            // No mostrar el propio index.html en el árbol para mantenerlo limpio
+            if (key === 'index.html') return;
+
+            const rawUrl = `https://githubusercontent.com{user}/${repo}/${branch}/${item._meta.path}`;
+            li.innerHTML = `
+                <div class="flex items-center justify-between p-1 hover:bg-gray-100 rounded group px-2 ml-4">
+                    <span class="text-gray-600 flex items-center">
+                        <i class="fa-solid fa-file text-gray-400 mr-2"></i> ${key}
+                    </span>
+                    <div class="space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <a href="${rawUrl}" target="_blank" class="text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded hover:bg-gray-300">
+                            <i class="fa-solid fa-eye"></i> Ver
+                        </a>
+                        <a href="${rawUrl}" download="${key}" class="text-xs bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700">
+                    <i class="fa-solid fa-download"></i> Descargar
+                </a>
+                    </div>
+                </div>
+            `;
         }
+        ul.appendChild(li);
+    });
+    container.appendChild(ul);
+}
 
-        // Convierte la lista plana de GitHub en un objeto anidado (árbol)
-        function buildTreeStructure(files) {
-            const root = {};
-            files.forEach(file => {
-                const parts = file.path.split('/');
-                let current = root;
-                
-                parts.forEach((part, index) => {
-                    if (!current[part]) {
-                        current[part] = { 
-                            _meta: index === parts.length - 1 ? { type: file.type, url: file.url, path: file.path } : { type: 'tree' } 
-                        };
-                    }
-                    current = current[part];
-                });
-            });
-            return root;
-        }
-
-        // Dibuja el HTML del árbol de forma recursiva
-        function renderTree(node, container) {
-            const ul = document.createElement('ul');
-            ul.className = "space-y-1";
-
-            // Separar carpetas de archivos para mostrarlas arriba
-            const keys = Object.keys(node).filter(k => k !== '_meta').sort((a, b) => {
-                const aType = node[a]._meta.type;
-                const bType = node[b]._meta.type;
-                if (aType === 'tree' && bType !== 'tree') return -1;
-                if (aType !== 'tree' && bType === 'tree') return 1;
-                return a.localeCompare(b);
-            });
-
-            keys.forEach(key => {
-                const item = node[key];
-                const li = document.createElement('li');
-                li.className = "py-1";
-
-                if (item._meta.type === 'tree') {
-                    // Es una carpeta
-                    li.innerHTML = `
-                        <span class="caret cursor-pointer font-medium text-gray-700 hover:text-indigo-600 select-none flex items-center inline-flex">
-                            <i class="fa-solid fa-folder text-yellow-500 mr-2"></i> ${key}
-                        </span>
-                    `;
-                    const nestedUlContainer = document.createElement('div');
-                    nestedUlContainer.className = "nested";
-                    renderTree(item, nestedUlContainer);
-                    li.appendChild(nestedUlContainer);
-                } else {
-                    // Es un archivo
-                    const rawUrl = `https://githubusercontent.com{GITHUB_USER}/${GITHUB_REPO}/${BRANCH}/${item._meta.path}`;
-                    li.innerHTML = `
-                        <div class="flex items-center justify-between p-1 hover:bg-gray-100 rounded group px-2 ml-4">
-                            <span class="text-gray-600 flex items-center">
-                                <i class="fa-solid fa-file-code text-gray-400 mr-2"></i> ${key}
-                            </span>
-                            <div class="space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <a href="${rawUrl}" target="_blank" class="text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded hover:bg-gray-300">
-                                    <i class="fa-solid fa-eye"></i> Ver
-                                </a>
-                                <a href="${rawUrl}" download="${key}" class="text-xs bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700">
-                                    <i class="fa-solid fa-download"></i> Descargar
-                                </a>
-                            </div>
-                        </div>
-                    `;
+function setupEventListeners() {
+    document.querySelectorAll('.caret').forEach(caret => {
+        caret.addEventListener('click', function(e) {
+            e.stopPropagation(); 
+            const nested = this.parentElement.querySelector('.nested');
+            if (nested) {
+                nested.classList.toggle('active');
+                this.classList.toggle('caret-down');
+                const icon = this.querySelector('.fa-folder, .fa-folder-open');
+                if (icon) {
+                    icon.classList.toggle('fa-folder');
+                    icon.classList.toggle('fa-folder-open');
                 }
-                ul.appendChild(li);
-            });
-            container.appendChild(ul);
-        }
+            }
+        });
+    });
+}
 
-        // Añade la interactividad para desplegar/colapsar carpetas
-        function setupEventListeners() {
-            document.querySelectorAll('.caret').forEach(caret => {
-                caret.addEventListener('click', function(e) {
-                    // Evita que el clic se propague a carpetas padre
-                    e.stopPropagation(); 
-                    
-                    const nested = this.parentElement.querySelector('.nested');
-                    if (nested) {
-                        nested.classList.toggle('active');
-                        this.classList.toggle('caret-down');
-                        
-                        // Cambia el icono de carpeta abierta/cerrada
-                        const icon = this.querySelector('.fa-folder, .fa-folder-open');
-                        if (icon) {
-                            icon.classList.toggle('fa-folder');
-                            icon.classList.toggle('fa-folder-open');
-                        }
-                    }
-                });
-            });
-        }
-
-        // Inicializar
-        fetchRepoTree();
-    </script>
-</body>
-</html>
+// Inicializar automáticamente
+fetchRepoTree();
